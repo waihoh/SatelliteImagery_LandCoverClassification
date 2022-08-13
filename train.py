@@ -64,7 +64,8 @@ def train_net(net, device, epochs=5, batch_size=1, lr=1e-3, val_percent=0.1, sav
         with tqdm(total=n_train, desc=f'Epoch {epoch+1}/{epochs}', unit='img') as pbar:
             for batch in train_loader:
                 # use half precision model for training
-                net.half()
+                if torch.cuda.is_available():
+                    net.half()
 
                 imgs = batch['image']
                 true_masks = batch['mask']
@@ -72,17 +73,20 @@ def train_net(net, device, epochs=5, batch_size=1, lr=1e-3, val_percent=0.1, sav
                 assert imgs.shape[1] == net.n_channels, \
                     f'Network has {net.n_channels} input channels but images have {imgs.shape[1]} channels.'
 
-                imgs = imgs.to(device=device, dtype=torch.float16)
+                imgs_type = torch.float16 if torch.cuda.is_available() else torch.float32
+                imgs = imgs.to(device=device, dtype=imgs_type)
                 mask_type = torch.float32 if net.n_classes == 1 else torch.long  # for cross entropy loss
                 true_masks = true_masks.to(device=device, dtype=mask_type)
 
+                masks_pred = net(imgs)
+
                 # convert the prediction to float32 to avoid nan in loss calculation
-                masks_pred = net(imgs).type(torch.float32)
+                masks_pred = masks_pred.type(torch.float32)
 
                 loss = criterion(masks_pred, true_masks)
                 epoch_loss += loss.item()
 
-                pbar.set_postfix(**{'Epoch loss', epoch_loss/n_train})
+                pbar.set_postfix({'Epoch loss': epoch_loss/n_train})
 
                 # convert model to full precision for optimization of weights
                 net.float()
